@@ -1,0 +1,94 @@
+stages:
+  - fetch
+  - build
+  - exec
+  - eval
+  - upload
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+
+fetch:
+    stage: fetch
+    cache:
+        key: scripts
+        paths:
+            - eval_scripts/plot.py
+            - eval_scripts/test.sh
+            - eval_scripts/upload.sh
+        policy: push
+    script:
+        - echo "Downloading scripts..."
+        - git clone https://gitlab-ci-token:${CI_JOB_TOKEN}@git.scc.kit.edu/paraalg2020/pipeline.git eval_scripts
+    interruptible: true
+
+build:
+  stage: build
+  script:
+    - cmake -B build -DCMAKE_BUILD_TYPE=Release
+    - make -C build -j
+  interruptible: true
+  artifacts:
+    name: executable
+    paths:
+      - build/ParaAlgFramework
+    expire_in: 1 day
+
+exec:
+  stage: exec
+  dependencies:
+    - build
+  script:
+    - ./build/ParaAlgFramework /srv/test_instances.txt > benchmark.csv
+
+  interruptible: true
+  artifacts:
+    name: benchmark
+    paths:
+      - benchmark.csv
+    expire_in: 1 week
+
+test:
+  stage: eval
+  dependencies:
+    - exec
+  cache:
+      key: scripts
+      paths:
+          - eval_scripts/test.sh
+      policy: pull
+  script:
+    - ./eval_scripts/test.sh
+
+plot:
+  stage: eval
+  dependencies:
+    - exec
+  cache:
+      key: scripts
+      paths:
+          - eval_scripts/plot.py
+      policy: pull
+  script:
+    - MPLBACKEND=agg python3 eval_scripts/plot.py benchmark.csv
+  artifacts:
+    paths:
+      - runtime.png
+      - runtime_per_item.png
+      - speedup_n.png
+      - speedup_p.png
+    expire_in: 1 week
+
+upload:
+  stage: upload
+  dependencies:
+    - test
+    - exec
+  cache:
+      key: scripts
+      paths:
+          - eval_scripts/upload.sh
+      policy: pull
+  script:
+    - ./eval_scripts/upload.sh
